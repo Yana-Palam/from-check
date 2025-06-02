@@ -1,7 +1,7 @@
 name: Daily Form Check
 
 on:
- workflow_dispatch: 
+  workflow_dispatch:
   schedule:
     - cron: '0 13 * * *' # Щодня о 13:00 UTC
 
@@ -24,9 +24,3 @@ jobs:
           URL: ${{ secrets.URL }}
           PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
         run: node form-check.js
-
-      - name: Завантаження лог-файлу
-        uses: actions/upload-artifact@v3
-        with:
-          name: form-check-log
-          path: form-check-log.txt
