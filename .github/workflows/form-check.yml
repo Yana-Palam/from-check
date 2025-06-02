@@ -1,31 +1,32 @@
 name: Daily Form Check
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: '0 9 * * *' # щодня о 9:00 UTC
+    - cron: '0 9 * * *' # Щодня о 9:00 UTC
+  workflow_dispatch:     # Дозволяє запуск вручну з GitHub
 
 jobs:
   run-script:
-    runs-on: ubuntu-latest  # саме GitHub-hosted runner
+    runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v3
 
-      - name: Встановлення Node.js
+      - name: Install Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '18'
 
-    - name: Встановлення залежностей
-  run: npm install puppeteer-core nodemailer
+      - name: Install dependencies
+        run: npm install puppeteer-core nodemailer
 
-- name: Запуск скрипта
-  env:
-    URL: ${{ secrets.URL }}
-    PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
-    EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
-    EMAIL_PORT: ${{ secrets.EMAIL_PORT }}
-    EMAIL_USER: ${{ secrets.EMAIL_USER }}
-    EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-    EMAIL_TO: ${{ secrets.EMAIL_TO }}
-  run: node form-check.js
+      - name: Run form check script
+        env:
+          URL: ${{ secrets.URL }}
+          EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
+          EMAIL_PORT: ${{ secrets.EMAIL_PORT }}
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: node form-check.js
