@@ -1,6 +1,7 @@
 name: Daily Form Check
 
 on:
+ workflow_dispatch: 
   schedule:
     - cron: '0 13 * * *' # Щодня о 13:00 UTC
 
