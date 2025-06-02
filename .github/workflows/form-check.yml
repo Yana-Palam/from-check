@@ -1,0 +1,31 @@
+name: Daily Form Check
+
+on:
+  schedule:
+    - cron: '0 13 * * *' # Щодня о 13:00 UTC
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Встановлення Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Встановлення залежностей
+        run: npm install puppeteer-core
+
+      - name: Запуск скрипта
+        env:
+          URL: ${{ secrets.URL }}
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: node form-check.js
+
+      - name: Завантаження лог-файлу
+        uses: actions/upload-artifact@v3
+        with:
+          name: form-check-log
+          path: form-check-log.txt

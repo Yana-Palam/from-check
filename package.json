@@ -1,0 +1,12 @@
+{
+  "name": "form-check",
+  "version": "1.0.0",
+  "description": "Form checker",
+  "main": "form-check.js",
+  "scripts": {
+    "start": "node form-check.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^21.3.8"
+  }
+}
