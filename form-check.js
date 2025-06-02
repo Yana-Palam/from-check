@@ -1,10 +1,31 @@
 const puppeteer = require("puppeteer-core");
 const fs = require("fs");
+const nodemailer = require("nodemailer");
 
 const URL = process.env.URL;
 
 (async () => {
-  const logFile = "form-check-log.txt";
+  // const logFile = "form-check-log.txt";
+
+  async function sendEmail(subject, text) {
+    const transporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST,
+      port: Number(process.env.EMAIL_PORT),
+      secure: Number(process.env.EMAIL_PORT) === 465, // true для 465
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    await transporter.sendMail({
+      from: `"Form Bot" <${process.env.EMAIL_USER}>`,
+      to: process.env.EMAIL_TO,
+      subject,
+      text,
+    });
+  }
+
   const browser = await puppeteer.launch({
     headless: true,
     executablePath:
@@ -64,11 +85,21 @@ const URL = process.env.URL;
     console.log(message.trim());
 
     // Лог у файл
-    fs.appendFileSync(logFile, message);
+    // fs.appendFileSync(logFile, message);
+    await sendEmail(
+      "✅ Form check SUCCESS",
+      `Everything went fine at ${new Date().toISOString()}`
+    );
+
   } catch (err) {
     const message = `${new Date().toISOString()} - ❌ ERROR: ${err.message}\n`;
     console.log(message.trim());
-    fs.appendFileSync(logFile, message);
+    await sendEmail(
+      "❌ Form check FAILED",
+      `Error at ${new Date().toISOString()}:\n${err.message}`
+    );
+
+    // fs.appendFileSync(logFile, message);
   } finally {
     await browser.close();
   }

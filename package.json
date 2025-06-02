@@ -7,6 +7,7 @@
     "start": "node form-check.js"
   },
   "dependencies": {
+    "nodemailer": "^7.0.3",
     "puppeteer-core": "^21.3.8"
   }
 }
