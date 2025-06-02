@@ -1,19 +1,22 @@
 const puppeteer = require("puppeteer-core");
+const fs = require("fs");
 
 const URL = process.env.URL;
 
 (async () => {
+  const logFile = "form-check-log.txt";
   const browser = await puppeteer.launch({
     headless: true,
     executablePath:
       process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/google-chrome",
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
-
   const page = await browser.newPage();
 
   try {
-    await page.goto(`${URL}/contacts.html`, { waitUntil: "networkidle2" });
+    await page.goto(`${URL}/contacts.html`, {
+      waitUntil: "networkidle2",
+    });
 
     await page.waitForSelector("#name", { visible: true });
     await page.type("#name", "Test User");
@@ -55,11 +58,17 @@ const URL = process.env.URL;
     const success = page.url().includes("/thank-you-page");
     const message = `${new Date().toISOString()} - ${
       success ? "✅ SUCCESS" : "❌ FAILED"
-    }`;
-    console.log(message);
+    }\n`;
+
+    // Лог у консоль
+    console.log(message.trim());
+
+    // Лог у файл
+    fs.appendFileSync(logFile, message);
   } catch (err) {
-    const message = `${new Date().toISOString()} - ❌ ERROR: ${err.message}`;
-    console.log(message);
+    const message = `${new Date().toISOString()} - ❌ ERROR: ${err.message}\n`;
+    console.log(message.trim());
+    fs.appendFileSync(logFile, message);
   } finally {
     await browser.close();
   }
