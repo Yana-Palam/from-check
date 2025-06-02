@@ -26,7 +26,7 @@ jobs:
         run: node form-check.js
 
       - name: Завантаження лог-файлу
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v2
         with:
           name: form-check-log
           path: form-check-log.txt
