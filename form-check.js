@@ -7,16 +7,14 @@ async function sendEmail(subject, text) {
   const transporter = nodemailer.createTransport({
     host: process.env.EMAIL_HOST,
     port: Number(process.env.EMAIL_PORT),
-    secure: Number(process.env.EMAIL_PORT) === 465, // true для 465, false для 587
+    secure: Number(process.env.EMAIL_PORT) === 465,
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
     },
   });
 
-  const recipients = process.env.EMAIL_TO.split(",").map((email) =>
-    email.trim()
-  );
+  const recipients = process.env.EMAIL_TO.split(",").map((email) => email.trim());
 
   await transporter.sendMail({
     from: `"Form Bot" <${process.env.EMAIL_USER}>`,
@@ -25,6 +23,8 @@ async function sendEmail(subject, text) {
     text,
   });
 }
+
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
   const browser = await puppeteer.launch({
@@ -39,47 +39,66 @@ async function sendEmail(subject, text) {
   try {
     await page.goto(`${URL}/contacts.html`, { waitUntil: "networkidle2" });
 
+    // ===== Identify form action (we'll wait for this response) =====
+    await page.waitForSelector("#contactForm", { visible: true });
+    const actionUrl = await page.$eval("#contactForm", (f) => f.action);
+
+    // ===== Fill fields =====
     await page.waitForSelector("#name", { visible: true });
     await page.type("#name", "Test User");
 
-    await page.waitForSelector("#company", { visible: true });
-    await page.type("#company", "Test Company");
+    // companyName (у вашому JS читається getValue("companyName"))
+    // Якщо id відрізняється — замініть на ваш реальний селектор.
+    await page.waitForSelector('[name="companyName"]', { visible: true });
+    await page.type('[name="companyName"]', "Test Company");
 
     await page.waitForSelector("#email", { visible: true });
-    await page.type("#email", "test@example.com");
+    // корпоративний домен (НЕ з blacklist)
+    await page.type("#email", "qa@test-company.example");
 
     await page.waitForSelector("#messageSend", { visible: true });
-    await page.type("#messageSend", "This is a test message");
+    await page.type("#messageSend", "Automated test submission");
 
+    // Selects: важливо вибирати VALUE, а не текст.
+    // Якщо у вас value інші — замініть.
     await page.waitForSelector("#request", { visible: true });
     await page.select("#request", "Tech recruitment");
 
     await page.waitForSelector("#hear", { visible: true });
     await page.select("#hear", "Google search");
 
+    // Honeypot: website має бути пустим (ми нічого не заповнюємо)
+    // Якщо поле існує і раптом autofill його заповнить — насильно очистимо:
     await page.evaluate(() => {
-      const consent = document.querySelector("#consent");
-      if (consent) consent.checked = true;
+      const hp = document.querySelector('[name="website"]');
+      if (hp) hp.value = "";
     });
 
+    // ===== Wait for reCAPTCHA token =====
     await page.waitForFunction(
-      () => {
-        return document.querySelector("#token")?.value?.length > 0;
-      },
-      { timeout: 10000 }
+      () => document.querySelector("#token")?.value?.length > 0,
+      { timeout: 15000 }
     );
 
-    await Promise.all([
-      page
-        .waitForNavigation({ waitUntil: "networkidle0", timeout: 10000 })
-        .catch(() => {}),
-      page.click("#submitButton"),
-    ]);
+    // ===== Important: wait so fillTimeMs > 2500ms (PHP filter) =====
+    // Щоб не “впасти” на $fillTimeMs < 2500:
+    await delay(3000);
 
-    const success = page.url().includes("/thank-you-page");
+    // ===== Submit and wait for fetch response =====
+    const responsePromise = page.waitForResponse(
+      (res) => res.url() === actionUrl,
+      { timeout: 15000 }
+    );
+
+    await page.click("#contactSubmit");
+
+    const res = await responsePromise;
+    const ok = res.ok(); // status 200-299
+    const status = res.status();
+
     const message = `${new Date().toISOString()} - ${
-      success ? "✅ SUCCESS" : "❌ FAILED"
-    }`;
+      ok ? "✅ SUCCESS" : "❌ FAILED"
+    } (HTTP ${status})`;
 
     console.log(message);
     await sendEmail("✅ Form check result", message);
