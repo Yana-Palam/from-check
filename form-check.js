@@ -37,14 +37,14 @@ async function sendEmail(subject, text) {
   try {
     await page.goto(`${URL}/contacts.html`, { waitUntil: "networkidle2" });
 
-    // Wait form
+    // Form is present
     await page.waitForSelector("#contactForm", { visible: true });
 
-    // Get action path for response matching
+    // Use form.action to match the fetch response (absolute URL)
     const actionUrl = await page.$eval("#contactForm", (f) => f.action);
     const actionPath = new URL(actionUrl).pathname; // e.g. "/mail.php"
 
-    // Fill fields (selectors based on your markup)
+    // Fill fields (selectors match your HTML)
     await page.waitForSelector('input[name="name"]', { visible: true });
     await page.type('input[name="name"]', "Test User");
 
@@ -52,35 +52,33 @@ async function sendEmail(subject, text) {
     await page.type('input[name="companyName"]', "Test Company");
 
     await page.waitForSelector('input[name="email"]', { visible: true });
-    // corporate email (not in blacklist)
     await page.type('input[name="email"]', "qa@test-company.example");
 
     await page.waitForSelector('textarea[name="messageSend"]', { visible: true });
     await page.type('textarea[name="messageSend"]', "Automated test message");
 
-    // Selects (these options use text as value, so this is correct)
     await page.waitForSelector('select[name="request"]', { visible: true });
     await page.select('select[name="request"]', "Tech recruitment");
 
     await page.waitForSelector('select[name="hear"]', { visible: true });
     await page.select('select[name="hear"]', "Google search");
 
-    // Ensure honeypot empty
+    // Ensure honeypot is empty
     await page.evaluate(() => {
       const hp = document.querySelector('input[name="website"]');
       if (hp) hp.value = "";
     });
 
-    // Wait for reCAPTCHA token (if it’s being set on the page)
+    // Wait for token (if your page sets it before submit)
     await page.waitForFunction(
       () => document.querySelector("#token")?.value?.length > 0,
       { timeout: 15000 }
     );
 
-    // IMPORTANT: avoid backend filter fillTimeMs < 2500
+    // Avoid backend fillTimeMs filter (< 2500)
     await page.waitForTimeout(3000);
 
-    // Wait for the fetch POST response to mail.php
+    // Wait for POST response to mail.php (fetch-based submit, no navigation)
     const responsePromise = page.waitForResponse(
       (res) => {
         try {
