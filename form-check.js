@@ -24,8 +24,6 @@ async function sendEmail(subject, text) {
   });
 }
 
-const delay = (ms) => new Promise((r) => setTimeout(r, ms));
-
 (async () => {
   const browser = await puppeteer.launch({
     headless: true,
@@ -39,61 +37,65 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
   try {
     await page.goto(`${URL}/contacts.html`, { waitUntil: "networkidle2" });
 
-    // ===== Identify form action (we'll wait for this response) =====
+    // Wait form
     await page.waitForSelector("#contactForm", { visible: true });
+
+    // Get action path for response matching
     const actionUrl = await page.$eval("#contactForm", (f) => f.action);
+    const actionPath = new URL(actionUrl).pathname; // e.g. "/mail.php"
 
-    // ===== Fill fields =====
-    await page.waitForSelector("#name", { visible: true });
-    await page.type("#name", "Test User");
+    // Fill fields (selectors based on your markup)
+    await page.waitForSelector('input[name="name"]', { visible: true });
+    await page.type('input[name="name"]', "Test User");
 
-    // companyName (у вашому JS читається getValue("companyName"))
-    // Якщо id відрізняється — замініть на ваш реальний селектор.
-    await page.waitForSelector('[name="companyName"]', { visible: true });
-    await page.type('[name="companyName"]', "Test Company");
+    await page.waitForSelector('input[name="companyName"]', { visible: true });
+    await page.type('input[name="companyName"]', "Test Company");
 
-    await page.waitForSelector("#email", { visible: true });
-    // корпоративний домен (НЕ з blacklist)
-    await page.type("#email", "qa@test-company.example");
+    await page.waitForSelector('input[name="email"]', { visible: true });
+    // corporate email (not in blacklist)
+    await page.type('input[name="email"]', "qa@test-company.example");
 
-    await page.waitForSelector("#messageSend", { visible: true });
-    await page.type("#messageSend", "Automated test submission");
+    await page.waitForSelector('textarea[name="messageSend"]', { visible: true });
+    await page.type('textarea[name="messageSend"]', "Automated test message");
 
-    // Selects: важливо вибирати VALUE, а не текст.
-    // Якщо у вас value інші — замініть.
-    await page.waitForSelector("#request", { visible: true });
-    await page.select("#request", "Tech recruitment");
+    // Selects (these options use text as value, so this is correct)
+    await page.waitForSelector('select[name="request"]', { visible: true });
+    await page.select('select[name="request"]', "Tech recruitment");
 
-    await page.waitForSelector("#hear", { visible: true });
-    await page.select("#hear", "Google search");
+    await page.waitForSelector('select[name="hear"]', { visible: true });
+    await page.select('select[name="hear"]', "Google search");
 
-    // Honeypot: website має бути пустим (ми нічого не заповнюємо)
-    // Якщо поле існує і раптом autofill його заповнить — насильно очистимо:
+    // Ensure honeypot empty
     await page.evaluate(() => {
-      const hp = document.querySelector('[name="website"]');
+      const hp = document.querySelector('input[name="website"]');
       if (hp) hp.value = "";
     });
 
-    // ===== Wait for reCAPTCHA token =====
+    // Wait for reCAPTCHA token (if it’s being set on the page)
     await page.waitForFunction(
       () => document.querySelector("#token")?.value?.length > 0,
       { timeout: 15000 }
     );
 
-    // ===== Important: wait so fillTimeMs > 2500ms (PHP filter) =====
-    // Щоб не “впасти” на $fillTimeMs < 2500:
-    await delay(3000);
+    // IMPORTANT: avoid backend filter fillTimeMs < 2500
+    await page.waitForTimeout(3000);
 
-    // ===== Submit and wait for fetch response =====
+    // Wait for the fetch POST response to mail.php
     const responsePromise = page.waitForResponse(
-      (res) => res.url() === actionUrl,
-      { timeout: 15000 }
+      (res) => {
+        try {
+          return new URL(res.url()).pathname === actionPath;
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 20000 }
     );
 
     await page.click("#contactSubmit");
 
     const res = await responsePromise;
-    const ok = res.ok(); // status 200-299
+    const ok = res.ok();
     const status = res.status();
 
     const message = `${new Date().toISOString()} - ${
