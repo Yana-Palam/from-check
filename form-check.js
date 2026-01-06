@@ -1,7 +1,7 @@
 const puppeteer = require("puppeteer-core");
 const nodemailer = require("nodemailer");
 
-const URL = process.env.URL;
+const BASE_URL = process.env.URL; // <-- було URL
 
 async function sendEmail(subject, text) {
   const transporter = nodemailer.createTransport({
@@ -25,6 +25,8 @@ async function sendEmail(subject, text) {
 }
 
 (async () => {
+  console.log("FORM BOT VERSION: 2026-01-06 (selectors by name=...)");
+
   const browser = await puppeteer.launch({
     headless: true,
     executablePath:
@@ -35,16 +37,13 @@ async function sendEmail(subject, text) {
   const page = await browser.newPage();
 
   try {
-    await page.goto(`${URL}/contacts.html`, { waitUntil: "networkidle2" });
+    await page.goto(`${BASE_URL}/contacts.html`, { waitUntil: "networkidle2" });
 
-    // Form is present
     await page.waitForSelector("#contactForm", { visible: true });
 
-    // Use form.action to match the fetch response (absolute URL)
     const actionUrl = await page.$eval("#contactForm", (f) => f.action);
-    const actionPath = new URL(actionUrl).pathname; // e.g. "/mail.php"
+    const actionPath = new globalThis.URL(actionUrl).pathname; // <-- або new URL після rename теж можна
 
-    // Fill fields (selectors match your HTML)
     await page.waitForSelector('input[name="name"]', { visible: true });
     await page.type('input[name="name"]', "Test User");
 
@@ -63,26 +62,22 @@ async function sendEmail(subject, text) {
     await page.waitForSelector('select[name="hear"]', { visible: true });
     await page.select('select[name="hear"]', "Google search");
 
-    // Ensure honeypot is empty
     await page.evaluate(() => {
       const hp = document.querySelector('input[name="website"]');
       if (hp) hp.value = "";
     });
 
-    // Wait for token (if your page sets it before submit)
     await page.waitForFunction(
       () => document.querySelector("#token")?.value?.length > 0,
       { timeout: 15000 }
     );
 
-    // Avoid backend fillTimeMs filter (< 2500)
     await page.waitForTimeout(3000);
 
-    // Wait for POST response to mail.php (fetch-based submit, no navigation)
     const responsePromise = page.waitForResponse(
       (res) => {
         try {
-          return new URL(res.url()).pathname === actionPath;
+          return new globalThis.URL(res.url()).pathname === actionPath;
         } catch {
           return false;
         }
