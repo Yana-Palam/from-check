@@ -20,6 +20,11 @@ jobs:
       - name: Install dependencies
         run: npm install puppeteer-core nodemailer
 
+         - name: Debug which script is running
+        run: |
+          echo "=== form-check.js (first 120 lines) ==="
+          sed -n '1,120p' form-check.js
+
       - name: Run form check script
         env:
           URL: ${{ secrets.URL }}
