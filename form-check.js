@@ -30,19 +30,32 @@ function nowIso() {
 
 (async () => {
   const browser = await puppeteer.launch({
-    headless: true,
+    headless: "new", // 🔥 важливо
     executablePath:
       process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/google-chrome",
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-blink-features=AutomationControlled",
+    ],
   });
 
   const page = await browser.newPage();
 
-  // Збільшимо таймаути, бо сайт/капча можуть бути повільнішими
+  // 🔥 Приховуємо automation
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, "webdriver", {
+      get: () => undefined,
+    });
+  });
+
+  await page.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+  );
+
   page.setDefaultTimeout(60000);
   page.setDefaultNavigationTimeout(60000);
 
-  // Debug collectors
   const debug = {
     console: [],
     requestFailed: [],
@@ -71,7 +84,9 @@ function nowIso() {
     const url = res.url();
     if (url.includes("mail.php")) {
       debug.responses.push(
-        `${res.status()} ${url} ${res.headers().location ? "-> " + res.headers().location : ""}`
+        `${res.status()} ${url} ${
+          res.headers().location ? "-> " + res.headers().location : ""
+        }`
       );
       if (debug.responses.length > 10) debug.responses.shift();
     }
@@ -81,7 +96,9 @@ function nowIso() {
 
   try {
     stage = "goto";
-    await page.goto(`${BASE_URL}/contacts.html`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${BASE_URL}/contacts.html`, {
+      waitUntil: "domcontentloaded",
+    });
 
     stage = "wait form";
     await page.waitForSelector("#contactForm", { visible: true });
@@ -91,11 +108,16 @@ function nowIso() {
     const actionPath = new globalThis.URL(actionUrl).pathname;
 
     stage = "fill fields";
-    await page.type('input[name="name"]', "Test User");
-    await page.type('input[name="companyName"]', "Test Company");
-    await page.type("#phone", "501234567");
-    await page.type('input[name="email"]', "qa@test-company.example");
-    await page.type('textarea[name="messageSend"]', "Automated form check message");
+
+    await page.type('input[name="name"]', "Test User", { delay: 50 });
+    await page.type('input[name="companyName"]', "Test Company", { delay: 50 });
+    await page.type("#phone", "501234567", { delay: 50 });
+    await page.type('input[name="email"]', "qa@test-company.example", { delay: 50 });
+    await page.type(
+      'textarea[name="messageSend"]',
+      "Automated form check message",
+      { delay: 30 }
+    );
 
     await page.select('select[name="request"]', "Tech recruitment");
     await page.select('select[name="hear"]', "Google search");
@@ -106,24 +128,27 @@ function nowIso() {
       if (hp) hp.value = "";
     });
 
-    // 1) Чекаємо token — тепер з чіткою помилкою
+    // 🔥 Невелика пауза, щоб reCAPTCHA ініціалізувалась
+    await page.waitForTimeout(4000);
+
     stage = "wait token";
     try {
       await page.waitForFunction(
         () => document.querySelector("#token")?.value?.length > 0,
-        { timeout: 45000 } // даємо капчі більше часу
+        { timeout: 45000 }
       );
     } catch (e) {
-      const tokenLen = await page.evaluate(() => (document.querySelector("#token")?.value || "").length);
+      const tokenLen = await page.evaluate(
+        () => (document.querySelector("#token")?.value || "").length
+      );
       throw new Error(`Token was not set in time. tokenLen=${tokenLen}`);
     }
 
-    // 2) Чекаємо, щоб fillTimeMs > 2500
     stage = "wait fillTime";
     await page.waitForTimeout(3200);
 
-    // 3) Чекаємо response на mail.php
     stage = "submit + wait response";
+
     const resPromise = page.waitForResponse(
       (res) => {
         try {
@@ -132,7 +157,7 @@ function nowIso() {
           return false;
         }
       },
-      { timeout: 45000 } // теж збільшили
+      { timeout: 45000 }
     );
 
     await page.click("#contactSubmit");
@@ -141,33 +166,44 @@ function nowIso() {
     const status = res.status();
     const location = res.headers().location || "";
 
-    // Успіх: 2xx або 302 на thank-you
     const success =
       (status >= 200 && status < 300) ||
       (status === 302 && /thank-you-page\.html/i.test(location));
 
-    const message = `${nowIso()} - ${success ? "✅ SUCCESS" : "❌ FAILED"} (HTTP ${status})${
-      location ? ` -> ${location}` : ""
-    }`;
+    const message = `${nowIso()} - ${
+      success ? "✅ SUCCESS" : "❌ FAILED"
+    } (HTTP ${status})${location ? ` -> ${location}` : ""}`;
 
     console.log(message);
-    await sendEmail(success ? "✅ Form check result" : "❌ Form check failed", message);
+
+    await sendEmail(
+      success ? "✅ Form check result" : "❌ Form check failed",
+      message
+    );
   } catch (err) {
-    // Збираємо більше контексту
     let url = "";
     let tokenLen = -1;
+
     try {
       url = page.url();
-      tokenLen = await page.evaluate(() => (document.querySelector("#token")?.value || "").length);
+      tokenLen = await page.evaluate(
+        () => (document.querySelector("#token")?.value || "").length
+      );
     } catch (_) {}
 
     const details = [
       `${nowIso()} - ❌ ERROR at stage="${stage}": ${err.message}`,
       `URL: ${url}`,
       `tokenLen: ${tokenLen}`,
-      debug.responses.length ? `mail.php responses: ${debug.responses.join(" | ")}` : "mail.php responses: (none)",
-      debug.requestFailed.length ? `requestFailed: ${debug.requestFailed.join(" | ")}` : "requestFailed: (none)",
-      debug.console.length ? `console: ${debug.console.join(" | ")}` : "console: (empty)",
+      debug.responses.length
+        ? `mail.php responses: ${debug.responses.join(" | ")}`
+        : "mail.php responses: (none)",
+      debug.requestFailed.length
+        ? `requestFailed: ${debug.requestFailed.join(" | ")}`
+        : "requestFailed: (none)",
+      debug.console.length
+        ? `console: ${debug.console.join(" | ")}`
+        : "console: (empty)",
     ].join("\n");
 
     console.error(details);
