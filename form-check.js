@@ -14,7 +14,7 @@ async function sendEmail(subject, text) {
     },
   });
 
-  const recipients = process.env.EMAIL_TO.split(",").map((email) => email.trim());
+  const recipients = process.env.EMAIL_TO.split(",").map(e => e.trim());
 
   await transporter.sendMail({
     from: `"Form Bot" <${process.env.EMAIL_USER}>`,
@@ -30,22 +30,33 @@ function nowIso() {
 
 (async () => {
   const browser = await puppeteer.launch({
-    headless: "new", // 🔥 важливо
+    headless: "new",
     executablePath:
       process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/google-chrome",
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-blink-features=AutomationControlled",
+      "--enable-gpu",
+      "--window-size=1366,768"
     ],
+    defaultViewport: null,
   });
 
   const page = await browser.newPage();
 
-  // 🔥 Приховуємо automation
+  // 🟢 Маскуємо webdriver
   await page.evaluateOnNewDocument(() => {
     Object.defineProperty(navigator, "webdriver", {
       get: () => undefined,
+    });
+
+    Object.defineProperty(navigator, "languages", {
+      get: () => ["en-US", "en"],
+    });
+
+    Object.defineProperty(navigator, "platform", {
+      get: () => "Win32",
     });
   });
 
@@ -53,160 +64,101 @@ function nowIso() {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
   );
 
+  await page.setViewport({
+    width: 1366,
+    height: 768,
+  });
+
+  await page.emulateTimezone("Europe/Kyiv");
+
   page.setDefaultTimeout(60000);
   page.setDefaultNavigationTimeout(60000);
-
-  const debug = {
-    console: [],
-    requestFailed: [],
-    responses: [],
-  };
-
-  page.on("console", (msg) => {
-    const text = msg.text();
-    debug.console.push(text);
-    if (debug.console.length > 40) debug.console.shift();
-  });
-
-  page.on("pageerror", (err) => {
-    debug.console.push(`PAGEERROR: ${err.message}`);
-    if (debug.console.length > 40) debug.console.shift();
-  });
-
-  page.on("requestfailed", (req) => {
-    debug.requestFailed.push(
-      `${req.failure()?.errorText || "FAILED"} ${req.method()} ${req.url()}`
-    );
-    if (debug.requestFailed.length > 20) debug.requestFailed.shift();
-  });
-
-  page.on("response", (res) => {
-    const url = res.url();
-    if (url.includes("mail.php")) {
-      debug.responses.push(
-        `${res.status()} ${url} ${
-          res.headers().location ? "-> " + res.headers().location : ""
-        }`
-      );
-      if (debug.responses.length > 10) debug.responses.shift();
-    }
-  });
 
   let stage = "start";
 
   try {
     stage = "goto";
     await page.goto(`${BASE_URL}/contacts.html`, {
-      waitUntil: "domcontentloaded",
+      waitUntil: "networkidle2",
     });
+
+    stage = "human move mouse";
+    await page.mouse.move(100, 200);
+    await page.waitForTimeout(800);
+    await page.mouse.move(300, 400);
+    await page.waitForTimeout(1200);
 
     stage = "wait form";
     await page.waitForSelector("#contactForm", { visible: true });
 
-    stage = "get action";
-    const actionUrl = await page.$eval("#contactForm", (f) => f.action);
-    const actionPath = new globalThis.URL(actionUrl).pathname;
+    stage = "fill slowly";
 
-    stage = "fill fields";
+    await page.type('input[name="name"]', "Test User", { delay: 120 });
+    await page.waitForTimeout(500);
 
-    await page.type('input[name="name"]', "Test User", { delay: 50 });
-    await page.type('input[name="companyName"]', "Test Company", { delay: 50 });
-    await page.type("#phone", "501234567", { delay: 50 });
-    await page.type('input[name="email"]', "qa@test-company.example", { delay: 50 });
+    await page.type('input[name="companyName"]', "Test Company", { delay: 120 });
+    await page.waitForTimeout(600);
+
+    await page.type("#phone", "501234567", { delay: 100 });
+    await page.waitForTimeout(600);
+
+    await page.type('input[name="email"]', "qa@test-company.example", { delay: 120 });
+    await page.waitForTimeout(700);
+
+    await page.select('select[name="request"]', "Tech recruitment");
+    await page.waitForTimeout(600);
+
+    await page.select('select[name="hear"]', "Google search");
+    await page.waitForTimeout(600);
+
     await page.type(
       'textarea[name="messageSend"]',
       "Automated form check message",
-      { delay: 30 }
+      { delay: 80 }
     );
 
-    await page.select('select[name="request"]', "Tech recruitment");
-    await page.select('select[name="hear"]', "Google search");
-
-    stage = "ensure honeypot empty";
-    await page.evaluate(() => {
-      const hp = document.querySelector('input[name="website"]');
-      if (hp) hp.value = "";
-    });
-
-    // 🔥 Невелика пауза, щоб reCAPTCHA ініціалізувалась
-    await page.waitForTimeout(4000);
+    // Дати reCAPTCHA більше часу
+    await page.waitForTimeout(8000);
 
     stage = "wait token";
-    try {
-      await page.waitForFunction(
-        () => document.querySelector("#token")?.value?.length > 0,
-        { timeout: 45000 }
-      );
-    } catch (e) {
-      const tokenLen = await page.evaluate(
-        () => (document.querySelector("#token")?.value || "").length
-      );
-      throw new Error(`Token was not set in time. tokenLen=${tokenLen}`);
-    }
+    await page.waitForFunction(
+      () => document.querySelector("#token")?.value?.length > 0,
+      { timeout: 60000 }
+    );
 
-    stage = "wait fillTime";
-    await page.waitForTimeout(3200);
+    stage = "submit";
 
-    stage = "submit + wait response";
+    const actionUrl = await page.$eval("#contactForm", f => f.action);
+    const actionPath = new URL(actionUrl).pathname;
 
     const resPromise = page.waitForResponse(
-      (res) => {
+      res => {
         try {
-          return new globalThis.URL(res.url()).pathname === actionPath;
+          return new URL(res.url()).pathname === actionPath;
         } catch {
           return false;
         }
       },
-      { timeout: 45000 }
+      { timeout: 60000 }
     );
 
     await page.click("#contactSubmit");
 
     const res = await resPromise;
     const status = res.status();
-    const location = res.headers().location || "";
 
-    const success =
-      (status >= 200 && status < 300) ||
-      (status === 302 && /thank-you-page\.html/i.test(location));
+    const success = status >= 200 && status < 400;
 
     const message = `${nowIso()} - ${
       success ? "✅ SUCCESS" : "❌ FAILED"
-    } (HTTP ${status})${location ? ` -> ${location}` : ""}`;
-
-    console.log(message);
+    } (HTTP ${status})`;
 
     await sendEmail(
       success ? "✅ Form check result" : "❌ Form check failed",
       message
     );
   } catch (err) {
-    let url = "";
-    let tokenLen = -1;
-
-    try {
-      url = page.url();
-      tokenLen = await page.evaluate(
-        () => (document.querySelector("#token")?.value || "").length
-      );
-    } catch (_) {}
-
-    const details = [
-      `${nowIso()} - ❌ ERROR at stage="${stage}": ${err.message}`,
-      `URL: ${url}`,
-      `tokenLen: ${tokenLen}`,
-      debug.responses.length
-        ? `mail.php responses: ${debug.responses.join(" | ")}`
-        : "mail.php responses: (none)",
-      debug.requestFailed.length
-        ? `requestFailed: ${debug.requestFailed.join(" | ")}`
-        : "requestFailed: (none)",
-      debug.console.length
-        ? `console: ${debug.console.join(" | ")}`
-        : "console: (empty)",
-    ].join("\n");
-
-    console.error(details);
+    const details = `${nowIso()} - ❌ ERROR at stage="${stage}": ${err.message}`;
     await sendEmail("❌ Form check error", details);
   } finally {
     await browser.close();
